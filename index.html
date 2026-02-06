@@ -49,7 +49,7 @@
     const MONKEY_HIT_RANGE = 50;
     const SWING_DURATION = 20;
     const SERVE_DELAY = 60;
-    const POINT_DISPLAY_TIME = 150;
+    const POINT_DISPLAY_TIME = 90;
     const RALLY_SPEED_INCREASE = 0.25;
     const MAX_BALL_SPEED = 13;
     const BANANA_CHANCE = 0.008;
@@ -932,35 +932,57 @@
         if (!banana.active) return;
         ctx.save();
         ctx.translate(banana.x, banana.y);
+        const bobble = Math.sin(frameCount * 0.08) * 3;
+        ctx.translate(0, bobble);
         ctx.rotate(Math.sin(frameCount * 0.05) * 0.2);
+        ctx.scale(1.8, 1.8);
 
         // Glow
         ctx.shadowColor = '#FFD700';
-        ctx.shadowBlur = 10 + Math.sin(frameCount * 0.1) * 5;
+        ctx.shadowBlur = 14 + Math.sin(frameCount * 0.1) * 6;
 
         // Banana shape
         ctx.fillStyle = '#FFD700';
-        ctx.strokeStyle = '#DAA520';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#B8860B';
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(-12, 5);
-        ctx.quadraticCurveTo(-15, -10, -5, -12);
-        ctx.quadraticCurveTo(5, -14, 12, -5);
-        ctx.quadraticCurveTo(15, 2, 10, 8);
-        ctx.quadraticCurveTo(5, 12, -5, 10);
-        ctx.quadraticCurveTo(-10, 8, -12, 5);
+        ctx.quadraticCurveTo(-15, -10, -5, -14);
+        ctx.quadraticCurveTo(5, -16, 14, -5);
+        ctx.quadraticCurveTo(17, 4, 12, 10);
+        ctx.quadraticCurveTo(5, 14, -5, 12);
+        ctx.quadraticCurveTo(-10, 9, -12, 5);
         ctx.fill();
         ctx.stroke();
 
+        // Inner highlight
+        ctx.fillStyle = 'rgba(255, 255, 150, 0.4)';
+        ctx.beginPath();
+        ctx.ellipse(0, -2, 6, 8, -0.3, 0, Math.PI * 2);
+        ctx.fill();
+
         // Stem
-        ctx.strokeStyle = '#8B6914';
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#6B4F1A';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(-5, -12);
-        ctx.lineTo(-3, -16);
+        ctx.moveTo(-5, -14);
+        ctx.lineTo(-4, -19);
         ctx.stroke();
 
+        // Brown tip
+        ctx.fillStyle = '#6B4F1A';
+        ctx.beginPath();
+        ctx.arc(12, 10, 3, 0, Math.PI * 2);
+        ctx.fill();
+
         ctx.restore();
+
+        // Label floating above
+        ctx.fillStyle = '#FFD700';
+        ctx.font = 'bold 11px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('🍌', banana.x, banana.y - 22 + bobble);
     }
 
     function drawScoreboard() {
@@ -1121,23 +1143,26 @@
             p.y += p.vy;
             p.vy += 0.1;
             p.life--;
-            const alpha = p.life / p.maxLife;
+            const alpha = Math.max(0, p.life / p.maxLife);
+            const radius = Math.max(0.1, p.size * alpha);
+            if (alpha <= 0) return;
             ctx.fillStyle = `rgba(${p.r},${p.g},${p.b},${alpha})`;
             ctx.beginPath();
-            ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+            ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
             ctx.fill();
         });
     }
 
     function spawnParticles(x, y, count, r, g, b) {
         for (let i = 0; i < count; i++) {
+            const life = Math.floor(20 + Math.random() * 20);
             particles.push({
                 x, y,
                 vx: (Math.random() - 0.5) * 6,
                 vy: (Math.random() - 0.5) * 6 - 2,
                 size: 2 + Math.random() * 3,
-                life: 20 + Math.random() * 20,
-                maxLife: 40,
+                life: life,
+                maxLife: life,
                 r, g, b
             });
         }
@@ -1608,14 +1633,9 @@
             playSound('netHit');
         }
 
-        // Net collision - ball clips the net if passing through slowly near the center
-        if (Math.abs(ball.vx) < 2.5 && ball.x > NET_X - 6 && ball.x < NET_X + 6 &&
-            ball.y > COURT.top + 30 && ball.y < COURT.bottom - 30) {
-            ball.vx *= -0.3;
-            ball.vy *= 0.5;
-            ball.x = ball.vx > 0 ? NET_X + 7 : NET_X - 7;
-            playSound('netHit');
-            spawnParticles(NET_X, ball.y, 5, 255, 255, 255);
+        // Ensure ball never gets stuck at very low horizontal speed
+        if (Math.abs(ball.vx) < 1.5 && ball.active) {
+            ball.vx = (ball.vx >= 0 ? 1 : -1) * Math.max(Math.abs(ball.vx), 2.5);
         }
 
         // Check for player hit
@@ -1804,18 +1824,41 @@
         }
 
         if (gameState === 'POINT_SCORED' || gameState === 'GAME_WON') {
-            ctx.fillStyle = 'rgba(0,0,0,0.2)';
+            ctx.fillStyle = 'rgba(0,0,0,0.45)';
             ctx.fillRect(0, 0, W, H);
+            ctx.textAlign = 'center';
 
             if (gameState === 'GAME_WON') {
                 const winner = lastPointWinner === 'player' ? 'PLAYER' : 'MR MONKEY';
                 ctx.fillStyle = '#FFD700';
                 ctx.font = 'bold 36px "Courier New", monospace';
-                ctx.textAlign = 'center';
                 ctx.fillText('GAME — ' + winner + '!', W / 2, H / 2 - 10);
                 ctx.fillStyle = '#FFF';
                 ctx.font = '16px "Courier New", monospace';
                 ctx.fillText(score.player.games + ' — ' + score.ai.games, W / 2, H / 2 + 20);
+            } else {
+                // POINT_SCORED — show who scored and the current score
+                const winner = lastPointWinner === 'player' ? 'PLAYER' : 'MR MONKEY';
+                const winColor = lastPointWinner === 'player' ? '#2ECC71' : '#E74C3C';
+                ctx.fillStyle = winColor;
+                ctx.font = 'bold 30px "Courier New", monospace';
+                ctx.fillText('POINT — ' + winner, W / 2, H / 2 - 15);
+
+                // Show current game score
+                let pDisp;
+                if (tiebreak) {
+                    pDisp = { player: tiebreakPoints.player.toString(), ai: tiebreakPoints.ai.toString() };
+                } else {
+                    pDisp = getPointDisplay(score.player.points, score.ai.points);
+                }
+                ctx.fillStyle = '#FFF';
+                ctx.font = 'bold 20px "Courier New", monospace';
+                ctx.fillText(pDisp.player + ' — ' + pDisp.ai, W / 2, H / 2 + 15);
+                if (pDisp.status) {
+                    ctx.fillStyle = '#FFEB3B';
+                    ctx.font = '14px "Courier New", monospace';
+                    ctx.fillText(pDisp.status, W / 2, H / 2 + 35);
+                }
             }
         }
 
