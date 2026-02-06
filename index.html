@@ -1,0 +1,1839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MONKEY TENNIS</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+        }
+        #gameCanvas {
+            border: 3px solid #333;
+            cursor: none;
+            image-rendering: pixelated;
+            max-width: 100vw;
+            max-height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="900" height="600"></canvas>
+    <script>
+    // ============================================================
+    // MONKEY TENNIS - "The Sport. The Primates. The Drama."
+    // Commissioned by BBC Norfolk
+    // ============================================================
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const W = 900, H = 600;
+
+    // ============================================================
+    // CONSTANTS
+    // ============================================================
+    const COURT = { left: 50, right: 850, top: 100, bottom: 500 };
+    const NET_X = 450;
+    const NET_TOP = 220;
+    const NET_BOTTOM = 500;
+    const BALL_RADIUS = 7;
+    const MONKEY_W = 40;
+    const MONKEY_H = 70;
+    const MONKEY_HIT_RANGE = 50;
+    const SWING_DURATION = 20;
+    const SERVE_DELAY = 60;
+    const POINT_DISPLAY_TIME = 150;
+    const RALLY_SPEED_INCREASE = 0.25;
+    const MAX_BALL_SPEED = 13;
+    const BANANA_CHANCE = 0.008;
+    const BANANA_DURATION = 300;
+    const BANANA_SPEED_MULT = 1.5;
+
+    // Difficulty settings
+    const DIFFICULTIES = {
+        easy:   { name: 'North Norfolk Digital', aiSpeed: 3.0, aiReaction: 0.03, aiMissChance: 0.15, ballSpeed: 4.5, aiSwingRange: 55 },
+        medium: { name: 'BBC2 Friday Night',     aiSpeed: 4.5, aiReaction: 0.06, aiMissChance: 0.06, ballSpeed: 5.5, aiSwingRange: 50 },
+        hard:   { name: 'Primetime ITV',          aiSpeed: 6.0, aiReaction: 0.10, aiMissChance: 0.01, ballSpeed: 7,   aiSwingRange: 45 }
+    };
+
+    // ============================================================
+    // PARTRIDGE COMMENTARY
+    // ============================================================
+    const COMMENTARY = [
+        "Back of the net!",
+        "Jurassic Park!",
+        "That was textbook!",
+        "Smell my cheese, you mother!",
+        "Kiss my face!",
+        "Dan! DAN! DAN! DAN!",
+        "A-HA!",
+        "Lovely stuff!",
+        "Cashback!",
+        "That's liquid tennis!",
+        "Simian perfection!",
+        "The crowd are literally going ape!",
+        "You couldn't script this! Well, you could. I just did.",
+        "That shot had more curve than a monkey's tail!",
+        "Tennis — it's just chess with sweat.",
+        "This is better than my other idea — cooking in prison.",
+        "Inner-city sumo was never like this!",
+        "That banana had it coming!",
+        "Needless to say, I had the last laugh.",
+        "He's thrown a kettle over a pub, what have you done?",
+        "That's the kind of shot that makes me want to eat a Toblerone.",
+        "I'm not driving a mini metro!",
+        "Sports casual!",
+        "Monkey see, monkey DO!",
+        "They should make this into a TV show. Oh wait.",
+        "That was hotter than a dynamite vindaloo!",
+        "Stop getting tennis wrong!",
+        "Lovely biscuits!",
+        "This match is sponsored by Dante's Inferno Rooms.",
+        "I've sacked off Pear Tree Productions for this.",
+        "He's got a degree in tennis from the University of Bananas.",
+        "That ball had more spin than a Norfolk roundabout.",
+        "Knowing me, knowing you — that's a point! A-HA!",
+    ];
+
+    const SERVE_COMMENTARY = [
+        "And we're off! Like a banana out of a cannon!",
+        "New point, new drama, same primates.",
+        "The tension is thicker than a monkey's fur.",
+        "Here we go. Television gold.",
+        "Serve it up like a hot plate at the Linton Travel Tavern.",
+    ];
+
+    const WIN_COMMENTARY = [
+        "GAME! Absolute scenes in the jungle!",
+        "That's the game! Better than anything on ITV2.",
+        "Game over for that one! The crowd goes BANANAS!",
+        "And THAT is why this show got commissioned!",
+        "Game! They'll be talking about this in Dun... Norwich!",
+    ];
+
+    // ============================================================
+    // AUDIO SYSTEM (Web Audio API)
+    // ============================================================
+    let audioCtx = null;
+    let soundEnabled = true;
+
+    function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    }
+
+    function playSound(type) {
+        if (!soundEnabled || !audioCtx) return;
+        try {
+            const now = audioCtx.currentTime;
+            switch (type) {
+                case 'hit': {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.frequency.setValueAtTime(400, now);
+                    osc.frequency.exponentialRampToValueAtTime(200, now + 0.1);
+                    gain.gain.setValueAtTime(0.3, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                    osc.start(now);
+                    osc.stop(now + 0.1);
+                    break;
+                }
+                case 'powerHit': {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.frequency.setValueAtTime(600, now);
+                    osc.frequency.exponentialRampToValueAtTime(150, now + 0.15);
+                    gain.gain.setValueAtTime(0.4, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+                    osc.start(now);
+                    osc.stop(now + 0.15);
+                    // Add noise burst
+                    const bufferSize = audioCtx.sampleRate * 0.05;
+                    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.2;
+                    const noise = audioCtx.createBufferSource();
+                    const nGain = audioCtx.createGain();
+                    noise.buffer = buffer;
+                    noise.connect(nGain);
+                    nGain.connect(audioCtx.destination);
+                    nGain.gain.setValueAtTime(0.3, now);
+                    nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+                    noise.start(now);
+                    break;
+                }
+                case 'point': {
+                    [0, 0.1, 0.2].forEach((delay, i) => {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        osc.frequency.setValueAtTime([523, 659, 784][i], now + delay);
+                        gain.gain.setValueAtTime(0.2, now + delay);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.2);
+                        osc.start(now + delay);
+                        osc.stop(now + delay + 0.2);
+                    });
+                    break;
+                }
+                case 'losePoint': {
+                    [0, 0.15].forEach((delay, i) => {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        osc.frequency.setValueAtTime([350, 220][i], now + delay);
+                        gain.gain.setValueAtTime(0.2, now + delay);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.25);
+                        osc.start(now + delay);
+                        osc.stop(now + delay + 0.25);
+                    });
+                    break;
+                }
+                case 'crowd': {
+                    const bufferSize = audioCtx.sampleRate * 0.4;
+                    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1);
+                    const noise = audioCtx.createBufferSource();
+                    const filter = audioCtx.createBiquadFilter();
+                    const gain = audioCtx.createGain();
+                    noise.buffer = buffer;
+                    filter.type = 'bandpass';
+                    filter.frequency.value = 1000;
+                    filter.Q.value = 0.5;
+                    noise.connect(filter);
+                    filter.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    gain.gain.setValueAtTime(0.08, now);
+                    gain.gain.linearRampToValueAtTime(0.15, now + 0.1);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+                    noise.start(now);
+                    break;
+                }
+                case 'banana': {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(300, now);
+                    osc.frequency.exponentialRampToValueAtTime(900, now + 0.2);
+                    gain.gain.setValueAtTime(0.15, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+                    osc.start(now);
+                    osc.stop(now + 0.25);
+                    break;
+                }
+                case 'netHit': {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(120, now);
+                    osc.frequency.exponentialRampToValueAtTime(60, now + 0.2);
+                    gain.gain.setValueAtTime(0.2, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                    osc.start(now);
+                    osc.stop(now + 0.2);
+                    break;
+                }
+                case 'gameWin': {
+                    [0, 0.12, 0.24, 0.36, 0.48].forEach((delay, i) => {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+                        osc.frequency.setValueAtTime([523, 587, 659, 784, 1047][i], now + delay);
+                        gain.gain.setValueAtTime(0.2, now + delay);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.3);
+                        osc.start(now + delay);
+                        osc.stop(now + delay + 0.3);
+                    });
+                    break;
+                }
+            }
+        } catch (e) { /* Audio error, silently ignore */ }
+    }
+
+    // ============================================================
+    // GAME STATE
+    // ============================================================
+    let gameState = 'TITLE'; // TITLE, DIFFICULTY, INTRO, PLAYING, SERVING, POINT_SCORED, GAME_WON, SET_OVER
+    let difficulty = DIFFICULTIES.medium;
+    let frameCount = 0;
+    let stateTimer = 0;
+    let commentaryText = '';
+    let commentaryTimer = 0;
+    let commentaryEnabled = true;
+    let rallyCount = 0;
+    let maxRallyThisSet = 0;
+    let lastPointWinner = null;
+
+    // Title screen animation
+    let titlePhase = 0;
+    let titleTimer = 0;
+
+    // Intro animation
+    let introTimer = 0;
+
+    // Scoring
+    let score = {
+        player: { points: 0, games: 0 },
+        ai:     { points: 0, games: 0 }
+    };
+    let server = 'player'; // who serves
+    let tiebreak = false;
+    let tiebreakPoints = { player: 0, ai: 0 };
+
+    // Ball
+    let ball = { x: 0, y: 0, vx: 0, vy: 0, speed: 6, active: false, lastHitBy: null, shadow: 0 };
+
+    // Monkeys
+    let player = {
+        x: 110, y: 300, vy: 0, swingTimer: 0, swinging: false,
+        celebrating: false, dejected: false, animTimer: 0,
+        hasBanana: false, bananaTimer: 0, score: 0
+    };
+    let ai = {
+        x: 790, y: 300, vy: 0, swingTimer: 0, swinging: false,
+        celebrating: false, dejected: false, animTimer: 0,
+        hasBanana: false, bananaTimer: 0, targetY: 300, score: 0,
+        willMiss: false
+    };
+
+    // Banana power-up
+    let banana = { x: 0, y: 0, active: false, timer: 0 };
+
+    // Particles
+    let particles = [];
+
+    // Crowd excitement (0-1)
+    let crowdExcitement = 0;
+    let lastCrowdSound = 0;
+
+    // Input
+    let keys = {};
+    document.addEventListener('keydown', (e) => {
+        keys[e.code] = true;
+        if (e.code === 'Space') e.preventDefault();
+        if (e.code === 'ArrowUp' || e.code === 'ArrowDown') e.preventDefault();
+
+        // State transitions on key press
+        if (gameState === 'TITLE' && (e.code === 'Space' || e.code === 'Enter')) {
+            initAudio();
+            gameState = 'DIFFICULTY';
+            stateTimer = 0;
+        } else if (gameState === 'SET_OVER' && (e.code === 'Space' || e.code === 'Enter')) {
+            resetSet();
+            gameState = 'DIFFICULTY';
+        }
+    });
+    document.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+    // Mouse for difficulty selection
+    let mouseX = 0, mouseY = 0, mouseClicked = false;
+    canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        mouseX = (e.clientX - rect.left) * (W / rect.width);
+        mouseY = (e.clientY - rect.top) * (H / rect.height);
+    });
+    canvas.addEventListener('click', (e) => {
+        initAudio();
+        mouseClicked = true;
+        if (gameState === 'TITLE') {
+            gameState = 'DIFFICULTY';
+            stateTimer = 0;
+        }
+    });
+
+    // ============================================================
+    // TENNIS SCORING
+    // ============================================================
+    const POINT_NAMES = ['0', '15', '30', '40'];
+
+    function getPointDisplay(playerPts, aiPts) {
+        if (playerPts < 3 || aiPts < 3) {
+            return {
+                player: POINT_NAMES[Math.min(playerPts, 3)],
+                ai: POINT_NAMES[Math.min(aiPts, 3)]
+            };
+        }
+        // Both at 40+: Deuce/Advantage
+        if (playerPts === aiPts) return { player: '40', ai: '40', status: 'DEUCE' };
+        if (playerPts > aiPts) return { player: 'AD', ai: '', status: 'AD PLAYER' };
+        return { player: '', ai: 'AD', status: 'AD CPU' };
+    }
+
+    function pointScored(winner) {
+        lastPointWinner = winner;
+        const loser = winner === 'player' ? 'ai' : 'player';
+
+        if (tiebreak) {
+            tiebreakPoints[winner]++;
+            const wp = tiebreakPoints.player, ap = tiebreakPoints.ai;
+            // Switch server every 2 points in tiebreak (after first point)
+            const totalPts = wp + ap;
+            if (totalPts === 1 || (totalPts > 1 && (totalPts - 1) % 2 === 0)) {
+                server = server === 'player' ? 'ai' : 'player';
+            }
+            if ((wp >= 7 || ap >= 7) && Math.abs(wp - ap) >= 2) {
+                // Tiebreak won
+                score[winner].games++;
+                return gameWon(winner);
+            }
+        } else {
+            score[winner].points++;
+            const wp = score.player.points, ap = score.ai.points;
+
+            // Game won when someone has 4+ points with 2+ point lead
+            if ((wp >= 4 || ap >= 4) && Math.abs(wp - ap) >= 2) {
+                score[winner].games++;
+                score.player.points = 0;
+                score.ai.points = 0;
+                server = server === 'player' ? 'ai' : 'player';
+                return gameWon(winner);
+            }
+        }
+
+        // Just a point, not a game
+        if (winner === 'player') {
+            playSound('point');
+            player.celebrating = true;
+            player.animTimer = 40;
+            ai.dejected = true;
+            ai.animTimer = 40;
+        } else {
+            playSound('losePoint');
+            ai.celebrating = true;
+            ai.animTimer = 40;
+            player.dejected = true;
+            player.animTimer = 40;
+        }
+
+        setCommentary(COMMENTARY[Math.floor(Math.random() * COMMENTARY.length)]);
+        gameState = 'POINT_SCORED';
+        stateTimer = POINT_DISPLAY_TIME;
+        ball.active = false;
+    }
+
+    function gameWon(winner) {
+        score.player.points = 0;
+        score.ai.points = 0;
+
+        // Check for set win
+        const pg = score.player.games, ag = score.ai.games;
+        if ((pg >= 6 || ag >= 6) && Math.abs(pg - ag) >= 2) {
+            // Set won!
+            gameState = 'SET_OVER';
+            stateTimer = 0;
+            if (winner === 'player') {
+                playSound('gameWin');
+                setCommentary("SET! The monkey has done it! Television HISTORY!");
+            } else {
+                playSound('losePoint');
+                setCommentary("Set lost. This is worse than that time I reversed into a farmer.");
+            }
+            return;
+        }
+        // Tiebreak check
+        if (pg === 6 && ag === 6 && !tiebreak) {
+            tiebreak = true;
+            tiebreakPoints = { player: 0, ai: 0 };
+        }
+
+        if (winner === 'player') {
+            playSound('gameWin');
+            player.celebrating = true;
+            player.animTimer = 60;
+            ai.dejected = true;
+            ai.animTimer = 60;
+        } else {
+            playSound('losePoint');
+            ai.celebrating = true;
+            ai.animTimer = 60;
+            player.dejected = true;
+            player.animTimer = 60;
+        }
+
+        server = server === 'player' ? 'ai' : 'player';
+        setCommentary(WIN_COMMENTARY[Math.floor(Math.random() * WIN_COMMENTARY.length)]);
+        gameState = 'GAME_WON';
+        stateTimer = POINT_DISPLAY_TIME + 30;
+        ball.active = false;
+    }
+
+    function setCommentary(text) {
+        commentaryText = text;
+        commentaryTimer = 180;
+    }
+
+    function resetSet() {
+        score = { player: { points: 0, games: 0 }, ai: { points: 0, games: 0 } };
+        server = 'player';
+        tiebreak = false;
+        tiebreakPoints = { player: 0, ai: 0 };
+        maxRallyThisSet = 0;
+        ball.active = false;
+    }
+
+    // ============================================================
+    // SERVE / BALL RESET
+    // ============================================================
+    function startServe() {
+        gameState = 'SERVING';
+        stateTimer = SERVE_DELAY;
+        ball.active = false;
+        rallyCount = 0;
+        crowdExcitement = 0;
+        player.swinging = false;
+        player.swingTimer = 0;
+        ai.swinging = false;
+        ai.swingTimer = 0;
+        ai.willMiss = Math.random() < difficulty.aiMissChance;
+
+        setCommentary(SERVE_COMMENTARY[Math.floor(Math.random() * SERVE_COMMENTARY.length)]);
+    }
+
+    function launchServe() {
+        const isPlayerServing = server === 'player';
+        ball.x = isPlayerServing ? player.x + 30 : ai.x - 30;
+        ball.y = isPlayerServing ? player.y : ai.y;
+        // Serves are a bit slower to give receiver time to react
+        ball.speed = difficulty.ballSpeed * 0.85;
+        const angle = (Math.random() - 0.5) * 0.5;
+        ball.vx = (isPlayerServing ? 1 : -1) * ball.speed * Math.cos(angle);
+        ball.vy = ball.speed * Math.sin(angle);
+        ball.active = true;
+        ball.lastHitBy = server;
+        playSound('hit');
+        gameState = 'PLAYING';
+
+        if (isPlayerServing) {
+            player.swinging = true;
+            player.swingTimer = SWING_DURATION;
+        } else {
+            ai.swinging = true;
+            ai.swingTimer = SWING_DURATION;
+        }
+    }
+
+    // ============================================================
+    // DRAWING FUNCTIONS
+    // ============================================================
+    function drawSky() {
+        const grad = ctx.createLinearGradient(0, 0, 0, COURT.top + 40);
+        grad.addColorStop(0, '#3498db');
+        grad.addColorStop(0.6, '#85C1E9');
+        grad.addColorStop(1, '#AED6F1');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, COURT.top + 40);
+
+        // Simple clouds
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        const cloudOffset = (frameCount * 0.15) % (W + 200);
+        drawCloud(cloudOffset - 100, 30, 1.0);
+        drawCloud((cloudOffset + 350) % (W + 200) - 100, 55, 0.7);
+        drawCloud((cloudOffset + 650) % (W + 200) - 100, 20, 0.85);
+
+        // Crowd/spectator strip along the top of the court
+        ctx.fillStyle = '#5D6D7E';
+        ctx.fillRect(0, COURT.top - 18, W, 18);
+        // Spectator heads (simple dots)
+        for (let i = 0; i < 50; i++) {
+            const sx = 15 + i * 18;
+            const sy = COURT.top - 10;
+            const bounce = Math.sin(frameCount * 0.03 + i * 0.7) * (crowdExcitement * 3);
+            ctx.fillStyle = ['#E8C89E', '#D4A574', '#C68E5B', '#F5DEB3'][i % 4];
+            ctx.beginPath();
+            ctx.arc(sx, sy + bounce, 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    function drawCloud(x, y, scale) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(scale, scale);
+        ctx.beginPath();
+        ctx.arc(0, 0, 25, 0, Math.PI * 2);
+        ctx.arc(25, -5, 20, 0, Math.PI * 2);
+        ctx.arc(50, 0, 25, 0, Math.PI * 2);
+        ctx.arc(20, -18, 18, 0, Math.PI * 2);
+        ctx.arc(35, -15, 16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    function drawCourt() {
+        // Court surface
+        const grad = ctx.createLinearGradient(0, COURT.top, 0, H);
+        grad.addColorStop(0, '#2ECC71');
+        grad.addColorStop(0.3, '#27AE60');
+        grad.addColorStop(1, '#1E8449');
+        ctx.fillStyle = grad;
+        ctx.fillRect(COURT.left, COURT.top, COURT.right - COURT.left, H - COURT.top);
+
+        // Court outline
+        ctx.strokeStyle = '#FFF';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(COURT.left, COURT.top, COURT.right - COURT.left, COURT.bottom - COURT.top);
+
+        // Service lines
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        // Service boxes
+        const serviceLeft = COURT.left + 140;
+        const serviceRight = COURT.right - 140;
+        ctx.beginPath();
+        ctx.moveTo(serviceLeft, COURT.top);
+        ctx.lineTo(serviceLeft, COURT.bottom);
+        ctx.moveTo(serviceRight, COURT.top);
+        ctx.lineTo(serviceRight, COURT.bottom);
+        ctx.stroke();
+
+        // Center service line
+        ctx.beginPath();
+        const midY = (COURT.top + COURT.bottom) / 2;
+        ctx.moveTo(serviceLeft, midY);
+        ctx.lineTo(NET_X, midY);
+        ctx.moveTo(NET_X, midY);
+        ctx.lineTo(serviceRight, midY);
+        ctx.stroke();
+
+        // Center mark
+        ctx.beginPath();
+        ctx.moveTo(COURT.left, midY);
+        ctx.lineTo(COURT.left + 15, midY);
+        ctx.moveTo(COURT.right, midY);
+        ctx.lineTo(COURT.right - 15, midY);
+        ctx.stroke();
+
+        // Court surface below baseline
+        ctx.fillStyle = '#1a7a3a';
+        ctx.fillRect(0, COURT.bottom, W, H - COURT.bottom);
+        ctx.fillRect(0, COURT.top, COURT.left, COURT.bottom - COURT.top);
+        ctx.fillRect(COURT.right, COURT.top, W - COURT.right, COURT.bottom - COURT.top);
+
+        // Net
+        ctx.strokeStyle = '#FFF';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(NET_X, COURT.top - 5);
+        ctx.lineTo(NET_X, COURT.bottom + 5);
+        ctx.stroke();
+
+        // Net mesh effect
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.lineWidth = 1;
+        for (let y = COURT.top; y < COURT.bottom; y += 15) {
+            ctx.beginPath();
+            ctx.moveTo(NET_X - 4, y);
+            ctx.lineTo(NET_X + 4, y);
+            ctx.stroke();
+        }
+
+        // Net posts
+        ctx.fillStyle = '#AAA';
+        ctx.fillRect(NET_X - 4, COURT.top - 10, 8, 15);
+        ctx.fillRect(NET_X - 4, COURT.bottom - 3, 8, 15);
+    }
+
+    function drawMonkey(x, y, facingRight, state, hasBanana) {
+        ctx.save();
+        const dir = facingRight ? 1 : -1;
+        const bounce = state === 'celebrating' ? Math.sin(frameCount * 0.3) * 6 :
+                       state === 'idle' ? Math.sin(frameCount * 0.05) * 2 : 0;
+        const yOff = y + bounce;
+        const dejectedSlump = state === 'dejected' ? 5 : 0;
+
+        // Banana glow effect
+        if (hasBanana) {
+            ctx.shadowColor = '#FFD700';
+            ctx.shadowBlur = 15 + Math.sin(frameCount * 0.1) * 5;
+        }
+
+        // Tail
+        ctx.strokeStyle = '#8B4513';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x - dir * 14, yOff + 5);
+        const tailWag = Math.sin(frameCount * 0.08) * 8;
+        ctx.quadraticCurveTo(x - dir * 35, yOff - 5 + tailWag, x - dir * 28, yOff - 25 + tailWag);
+        ctx.stroke();
+
+        // Legs
+        ctx.fillStyle = '#A0522D';
+        ctx.beginPath();
+        ctx.ellipse(x - 8, yOff + 27 + dejectedSlump, 7, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(x + 8, yOff + 27 + dejectedSlump, 7, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Feet
+        ctx.fillStyle = '#DEB887';
+        ctx.beginPath();
+        ctx.ellipse(x - 8, yOff + 34 + dejectedSlump, 6, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(x + 8, yOff + 34 + dejectedSlump, 6, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Body
+        ctx.fillStyle = '#A0522D';
+        ctx.beginPath();
+        ctx.ellipse(x, yOff + dejectedSlump, 18, 24, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Belly
+        ctx.fillStyle = '#DEB887';
+        ctx.beginPath();
+        ctx.ellipse(x + dir * 2, yOff + 3 + dejectedSlump, 12, 16, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Non-racket arm
+        ctx.strokeStyle = '#A0522D';
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        const armWave = state === 'celebrating' ? Math.sin(frameCount * 0.2) * 20 : 0;
+        ctx.moveTo(x - dir * 14, yOff - 5 + dejectedSlump);
+        ctx.lineTo(x - dir * 25, yOff + 10 + dejectedSlump - armWave);
+        ctx.stroke();
+        // Hand
+        ctx.fillStyle = '#DEB887';
+        ctx.beginPath();
+        ctx.arc(x - dir * 25, yOff + 10 + dejectedSlump - armWave, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Racket arm
+        const swingAngle = state === 'swinging' ?
+            -dir * 1.2 : -dir * 0.3 + Math.sin(frameCount * 0.04) * 0.1;
+        ctx.strokeStyle = '#A0522D';
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        const armX = x + dir * 14;
+        const armY = yOff - 5 + dejectedSlump;
+        const elbowX = armX + Math.cos(swingAngle) * 18;
+        const elbowY = armY + Math.sin(swingAngle) * 18;
+        ctx.moveTo(armX, armY);
+        ctx.lineTo(elbowX, elbowY);
+        ctx.stroke();
+        // Hand
+        ctx.fillStyle = '#DEB887';
+        ctx.beginPath();
+        ctx.arc(elbowX, elbowY, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Racket
+        const racketX = elbowX + Math.cos(swingAngle) * 16;
+        const racketY = elbowY + Math.sin(swingAngle) * 16;
+        // Handle
+        ctx.strokeStyle = '#8B6914';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(elbowX, elbowY);
+        ctx.lineTo(racketX, racketY);
+        ctx.stroke();
+        // Head of racket
+        ctx.strokeStyle = '#DAA520';
+        ctx.lineWidth = 2;
+        ctx.fillStyle = 'rgba(173, 255, 47, 0.3)';
+        ctx.beginPath();
+        ctx.ellipse(racketX + Math.cos(swingAngle) * 8, racketY + Math.sin(swingAngle) * 8,
+            12, 8, swingAngle, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        // Strings
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+        ctx.lineWidth = 0.5;
+        const rcx = racketX + Math.cos(swingAngle) * 8;
+        const rcy = racketY + Math.sin(swingAngle) * 8;
+        for (let i = -1; i <= 1; i++) {
+            ctx.beginPath();
+            ctx.moveTo(rcx + i * 4, rcy - 7);
+            ctx.lineTo(rcx + i * 4, rcy + 7);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(rcx - 10, rcy + i * 3);
+            ctx.lineTo(rcx + 10, rcy + i * 3);
+            ctx.stroke();
+        }
+
+        // Head
+        ctx.fillStyle = '#A0522D';
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.arc(x, yOff - 26 + dejectedSlump, 16, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Face
+        ctx.fillStyle = '#DEB887';
+        ctx.beginPath();
+        ctx.ellipse(x + dir * 1, yOff - 24 + dejectedSlump, 11, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ears
+        ctx.fillStyle = '#A0522D';
+        ctx.beginPath();
+        ctx.arc(x - 15, yOff - 28 + dejectedSlump, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#E8C89E';
+        ctx.beginPath();
+        ctx.arc(x - 15, yOff - 28 + dejectedSlump, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#A0522D';
+        ctx.beginPath();
+        ctx.arc(x + 15, yOff - 28 + dejectedSlump, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#E8C89E';
+        ctx.beginPath();
+        ctx.arc(x + 15, yOff - 28 + dejectedSlump, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Eyes
+        if (state === 'dejected') {
+            // X eyes
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1.5;
+            [-5, 5].forEach(ox => {
+                ctx.beginPath();
+                ctx.moveTo(x + ox - 2, yOff - 30 + dejectedSlump - 2);
+                ctx.lineTo(x + ox + 2, yOff - 30 + dejectedSlump + 2);
+                ctx.moveTo(x + ox + 2, yOff - 30 + dejectedSlump - 2);
+                ctx.lineTo(x + ox - 2, yOff - 30 + dejectedSlump + 2);
+                ctx.stroke();
+            });
+        } else {
+            // Normal eyes
+            ctx.fillStyle = '#FFF';
+            ctx.beginPath();
+            ctx.ellipse(x - 5, yOff - 29 + dejectedSlump, 4, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.ellipse(x + 5, yOff - 29 + dejectedSlump, 4, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Pupils - look at ball
+            let pupilOx = 0, pupilOy = 0;
+            if (ball.active) {
+                const dx = ball.x - x, dy = ball.y - yOff;
+                const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                pupilOx = (dx / dist) * 2;
+                pupilOy = (dy / dist) * 1.5;
+            }
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(x - 5 + pupilOx, yOff - 29 + dejectedSlump + pupilOy, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(x + 5 + pupilOx, yOff - 29 + dejectedSlump + pupilOy, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            if (state === 'celebrating') {
+                // Star eyes
+                ctx.fillStyle = '#FFD700';
+                ctx.font = '6px sans-serif';
+                ctx.fillText('★', x - 7, yOff - 27 + dejectedSlump);
+                ctx.fillText('★', x + 3, yOff - 27 + dejectedSlump);
+            }
+        }
+
+        // Mouth
+        ctx.strokeStyle = '#5D3A1A';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        if (state === 'celebrating') {
+            ctx.arc(x, yOff - 18 + dejectedSlump, 6, 0, Math.PI);
+            ctx.stroke();
+            // Teeth
+            ctx.fillStyle = '#FFF';
+            ctx.fillRect(x - 4, yOff - 18 + dejectedSlump, 8, 3);
+        } else if (state === 'dejected') {
+            ctx.arc(x, yOff - 15 + dejectedSlump, 5, Math.PI, 0);
+            ctx.stroke();
+        } else {
+            ctx.arc(x, yOff - 19 + dejectedSlump, 4, 0.1, Math.PI - 0.1);
+            ctx.stroke();
+        }
+
+        // Nostrils
+        ctx.fillStyle = '#8B4513';
+        ctx.beginPath();
+        ctx.arc(x - 2, yOff - 22 + dejectedSlump, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x + 2, yOff - 22 + dejectedSlump, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    function getMonkeyState(m) {
+        if (m.celebrating) return 'celebrating';
+        if (m.dejected) return 'dejected';
+        if (m.swinging) return 'swinging';
+        return 'idle';
+    }
+
+    function drawBall() {
+        if (!ball.active) return;
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.beginPath();
+        ctx.ellipse(ball.x, COURT.bottom - 3, BALL_RADIUS * 0.8, BALL_RADIUS * 0.3, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ball
+        ctx.fillStyle = '#CDDC39';
+        ctx.strokeStyle = '#8BC34A';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Tennis ball curve
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, BALL_RADIUS * 0.6, -0.5, 1.5);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, BALL_RADIUS * 0.6, 2.5, 4.5);
+        ctx.stroke();
+
+        // Speed trail
+        if (Math.abs(ball.vx) > 4) {
+            const alpha = Math.min(0.3, Math.abs(ball.vx) / 30);
+            ctx.fillStyle = `rgba(205,220,57,${alpha})`;
+            for (let i = 1; i <= 3; i++) {
+                ctx.beginPath();
+                ctx.arc(ball.x - ball.vx * i * 0.3, ball.y - ball.vy * i * 0.3,
+                    BALL_RADIUS * (1 - i * 0.2), 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+    }
+
+    function drawBanana() {
+        if (!banana.active) return;
+        ctx.save();
+        ctx.translate(banana.x, banana.y);
+        ctx.rotate(Math.sin(frameCount * 0.05) * 0.2);
+
+        // Glow
+        ctx.shadowColor = '#FFD700';
+        ctx.shadowBlur = 10 + Math.sin(frameCount * 0.1) * 5;
+
+        // Banana shape
+        ctx.fillStyle = '#FFD700';
+        ctx.strokeStyle = '#DAA520';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-12, 5);
+        ctx.quadraticCurveTo(-15, -10, -5, -12);
+        ctx.quadraticCurveTo(5, -14, 12, -5);
+        ctx.quadraticCurveTo(15, 2, 10, 8);
+        ctx.quadraticCurveTo(5, 12, -5, 10);
+        ctx.quadraticCurveTo(-10, 8, -12, 5);
+        ctx.fill();
+        ctx.stroke();
+
+        // Stem
+        ctx.strokeStyle = '#8B6914';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-5, -12);
+        ctx.lineTo(-3, -16);
+        ctx.stroke();
+
+        ctx.restore();
+    }
+
+    function drawScoreboard() {
+        // TV broadcast overlay style
+        const sbY = 8;
+        const sbH = 52;
+
+        // Background bar
+        ctx.fillStyle = 'rgba(0, 20, 60, 0.85)';
+        ctx.fillRect(200, sbY, 500, sbH);
+        // Accent bar
+        ctx.fillStyle = '#E74C3C';
+        ctx.fillRect(200, sbY, 5, sbH);
+        ctx.fillRect(695, sbY, 5, sbH);
+
+        // Title
+        ctx.fillStyle = '#E74C3C';
+        ctx.font = 'bold 10px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('MONKEY TENNIS LIVE', 450, sbY + 12);
+
+        // Divider
+        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+        ctx.fillRect(210, sbY + 16, 480, 1);
+
+        // Player names and scores
+        ctx.textAlign = 'left';
+        ctx.font = 'bold 14px "Courier New", monospace';
+
+        // Player side
+        const servingPlayer = server === 'player';
+        const servingAI = server === 'ai';
+        ctx.fillStyle = servingPlayer ? '#FFEB3B' : '#FFF';
+        ctx.fillText((servingPlayer ? '● ' : '  ') + 'PLAYER', 215, sbY + 33);
+        ctx.fillStyle = servingAI ? '#FFEB3B' : '#FFF';
+        ctx.fillText((servingAI ? '● ' : '  ') + 'MR MONKEY', 215, sbY + 48);
+
+        // Games
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.font = '10px "Courier New", monospace';
+        ctx.fillText('GAMES', 540, sbY + 13);
+
+        ctx.font = 'bold 16px "Courier New", monospace';
+        ctx.fillStyle = '#FFF';
+        ctx.fillText(score.player.games.toString(), 540, sbY + 33);
+        ctx.fillText(score.ai.games.toString(), 540, sbY + 48);
+
+        // Points
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.font = '10px "Courier New", monospace';
+        ctx.fillText('PTS', 620, sbY + 13);
+
+        let pDisp;
+        if (tiebreak) {
+            pDisp = { player: tiebreakPoints.player.toString(), ai: tiebreakPoints.ai.toString() };
+        } else {
+            pDisp = getPointDisplay(score.player.points, score.ai.points);
+        }
+
+        ctx.font = 'bold 16px "Courier New", monospace';
+        ctx.fillStyle = '#2ECC71';
+        ctx.fillText(pDisp.player, 620, sbY + 33);
+        ctx.fillText(pDisp.ai, 620, sbY + 48);
+
+        // Deuce/Advantage indicator
+        if (pDisp.status) {
+            ctx.fillStyle = '#FFEB3B';
+            ctx.font = 'bold 10px "Courier New", monospace';
+            ctx.fillText(pDisp.status, 670, sbY + 40);
+        }
+
+        // Tiebreak indicator
+        if (tiebreak) {
+            ctx.fillStyle = '#E74C3C';
+            ctx.font = 'bold 10px "Courier New", monospace';
+            ctx.fillText('TIEBREAK', 450, sbY + 48);
+        }
+
+        // Rally counter
+        if (gameState === 'PLAYING' && rallyCount > 2) {
+            ctx.fillStyle = 'rgba(0,20,60,0.7)';
+            ctx.fillRect(410, sbY + sbH + 4, 80, 18);
+            ctx.fillStyle = '#FFEB3B';
+            ctx.font = 'bold 11px "Courier New", monospace';
+            ctx.fillText('RALLY: ' + rallyCount, 450, sbY + sbH + 16);
+        }
+    }
+
+    function drawCommentary() {
+        if (commentaryTimer <= 0 || !commentaryEnabled) return;
+
+        const alpha = commentaryTimer < 30 ? commentaryTimer / 30 : 1;
+        const boxY = COURT.bottom + 25;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+
+        // Commentary box
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+        const textWidth = ctx.measureText(commentaryText).width;
+        const boxW = Math.min(700, textWidth + 60);
+        ctx.fillRect((W - boxW) / 2, boxY, boxW, 30);
+
+        // Commentary icon
+        ctx.fillStyle = '#E74C3C';
+        ctx.font = 'bold 11px "Courier New", monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('💬', (W - boxW) / 2 + 8, boxY + 20);
+
+        // Text
+        ctx.fillStyle = '#FFF';
+        ctx.font = 'italic 13px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('"' + commentaryText + '"', W / 2, boxY + 20);
+
+        ctx.restore();
+    }
+
+    function drawCredits() {
+        ctx.fillStyle = 'rgba(255,255,255,0.25)';
+        ctx.font = '9px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Commissioned by BBC Norfolk  •  A Peartree Productions Production  •  © MMXXVI', W / 2, H - 6);
+    }
+
+    function drawCRTEffect() {
+        // Scanlines
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.04)';
+        for (let y = 0; y < H; y += 3) {
+            ctx.fillRect(0, y, W, 1);
+        }
+        // Vignette
+        const vgrad = ctx.createRadialGradient(W / 2, H / 2, W * 0.3, W / 2, H / 2, W * 0.7);
+        vgrad.addColorStop(0, 'rgba(0,0,0,0)');
+        vgrad.addColorStop(1, 'rgba(0,0,0,0.3)');
+        ctx.fillStyle = vgrad;
+        ctx.fillRect(0, 0, W, H);
+
+        // Occasional flicker
+        if (Math.random() < 0.003) {
+            ctx.fillStyle = 'rgba(255,255,255,0.03)';
+            ctx.fillRect(0, 0, W, H);
+        }
+
+        // VHS tracking line (rare)
+        if (Math.random() < 0.005) {
+            const ly = Math.random() * H;
+            ctx.fillStyle = 'rgba(255,255,255,0.05)';
+            ctx.fillRect(0, ly, W, 2 + Math.random() * 4);
+        }
+    }
+
+    function drawParticles() {
+        particles = particles.filter(p => p.life > 0);
+        particles.forEach(p => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.1;
+            p.life--;
+            const alpha = p.life / p.maxLife;
+            ctx.fillStyle = `rgba(${p.r},${p.g},${p.b},${alpha})`;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
+
+    function spawnParticles(x, y, count, r, g, b) {
+        for (let i = 0; i < count; i++) {
+            particles.push({
+                x, y,
+                vx: (Math.random() - 0.5) * 6,
+                vy: (Math.random() - 0.5) * 6 - 2,
+                size: 2 + Math.random() * 3,
+                life: 20 + Math.random() * 20,
+                maxLife: 40,
+                r, g, b
+            });
+        }
+    }
+
+    // ============================================================
+    // SCREENS
+    // ============================================================
+    function drawTitleScreen() {
+        // Background
+        ctx.fillStyle = '#0a0a2e';
+        ctx.fillRect(0, 0, W, H);
+
+        // Animated background pattern
+        ctx.save();
+        ctx.globalAlpha = 0.05;
+        for (let i = 0; i < 20; i++) {
+            const x = ((frameCount * 0.5 + i * 50) % (W + 100)) - 50;
+            const y = ((frameCount * 0.3 + i * 40) % (H + 100)) - 50;
+            ctx.fillStyle = i % 2 ? '#FFD700' : '#E74C3C';
+            ctx.font = '30px sans-serif';
+            ctx.fillText('🎾', x, y);
+        }
+        ctx.restore();
+
+        // Spotlight effect
+        const spotGrad = ctx.createRadialGradient(W / 2, H / 2 - 50, 0, W / 2, H / 2 - 50, 350);
+        spotGrad.addColorStop(0, 'rgba(255, 215, 0, 0.08)');
+        spotGrad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = spotGrad;
+        ctx.fillRect(0, 0, W, H);
+
+        titleTimer++;
+
+        // "From the mind of a genius..."
+        if (titleTimer > 30) {
+            const alpha = Math.min(1, (titleTimer - 30) / 60);
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = '#E74C3C';
+            ctx.font = 'italic 14px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('From the mind of a genius...', W / 2, 120);
+            ctx.globalAlpha = 1;
+        }
+
+        // Title
+        if (titleTimer > 80) {
+            const scale = Math.min(1, (titleTimer - 80) / 30);
+            const shake = titleTimer < 115 ? (Math.random() - 0.5) * (115 - titleTimer) * 0.3 : 0;
+            ctx.save();
+            ctx.translate(W / 2 + shake, 220 + shake * 0.5);
+            ctx.scale(scale, scale);
+            // Title shadow
+            ctx.fillStyle = '#B8860B';
+            ctx.font = 'bold 72px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('MONKEY', 3, 3);
+            ctx.fillText('TENNIS', 3, 73);
+            // Title text
+            const titleGrad = ctx.createLinearGradient(-200, -40, 200, 40);
+            titleGrad.addColorStop(0, '#FFD700');
+            titleGrad.addColorStop(0.5, '#FFF8DC');
+            titleGrad.addColorStop(1, '#FFD700');
+            ctx.fillStyle = titleGrad;
+            ctx.fillText('MONKEY', 0, 0);
+            ctx.fillText('TENNIS', 0, 70);
+            ctx.restore();
+        }
+
+        // Tagline
+        if (titleTimer > 140) {
+            const alpha = Math.min(1, (titleTimer - 140) / 40);
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = '#FFF';
+            ctx.font = 'italic 16px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('The Sport. The Primates. The Drama.', W / 2, 340);
+            ctx.globalAlpha = 1;
+        }
+
+        // Decorative monkeys
+        if (titleTimer > 120) {
+            drawMonkey(180, 300, true, 'celebrating', false);
+            drawMonkey(720, 300, false, 'celebrating', false);
+        }
+
+        // Start prompt
+        if (titleTimer > 180) {
+            const blink = Math.sin(frameCount * 0.08) > 0;
+            if (blink) {
+                ctx.fillStyle = '#FFF';
+                ctx.font = 'bold 18px "Courier New", monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('PRESS SPACE OR CLICK TO BEGIN', W / 2, 440);
+            }
+        }
+
+        // Credits
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.font = '10px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Commissioned by BBC Norfolk  •  A Peartree Productions Production', W / 2, 520);
+        ctx.fillText('© MMXXVI  All Rights Reserved  •  "As seen on North Norfolk Digital"', W / 2, 538);
+
+        // Controls hint
+        if (titleTimer > 200) {
+            ctx.fillStyle = 'rgba(255,255,255,0.4)';
+            ctx.font = '11px "Courier New", monospace';
+            ctx.fillText('Controls: ↑↓ or W/S to move  •  SPACE to swing  •  M to mute', W / 2, 570);
+        }
+
+        drawCRTEffect();
+    }
+
+    function drawDifficultyScreen() {
+        ctx.fillStyle = '#0a0a2e';
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.fillStyle = '#FFD700';
+        ctx.font = 'bold 36px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('SELECT DIFFICULTY', W / 2, 100);
+
+        ctx.fillStyle = '#FFF';
+        ctx.font = 'italic 14px "Courier New", monospace';
+        ctx.fillText('Choose your broadcast tier:', W / 2, 135);
+
+        const options = [
+            { key: 'easy', label: 'North Norfolk Digital', desc: 'For beginners. Slow ball, drowsy opposition.', color: '#2ECC71', code: '1' },
+            { key: 'medium', label: 'BBC2 Friday Night', desc: 'A fair challenge. Respectable tennis.', color: '#F39C12', code: '2' },
+            { key: 'hard', label: 'Primetime ITV', desc: 'The big leagues. Fast and ruthless.', color: '#E74C3C', code: '3' },
+        ];
+
+        let hoveredOption = null;
+        options.forEach((opt, i) => {
+            const bx = W / 2 - 200, by = 180 + i * 120, bw = 400, bh = 95;
+            const hovered = mouseX >= bx && mouseX <= bx + bw && mouseY >= by && mouseY <= by + bh;
+            if (hovered) hoveredOption = opt;
+
+            // Box
+            ctx.fillStyle = hovered ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.04)';
+            ctx.fillRect(bx, by, bw, bh);
+            ctx.strokeStyle = hovered ? opt.color : 'rgba(255,255,255,0.2)';
+            ctx.lineWidth = hovered ? 2 : 1;
+            ctx.strokeRect(bx, by, bw, bh);
+
+            // Accent bar
+            ctx.fillStyle = opt.color;
+            ctx.fillRect(bx, by, 5, bh);
+
+            // Number key
+            ctx.fillStyle = opt.color;
+            ctx.font = 'bold 28px "Courier New", monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText(opt.code, bx + 20, by + 45);
+
+            // Label
+            ctx.fillStyle = '#FFF';
+            ctx.font = 'bold 18px "Courier New", monospace';
+            ctx.fillText(opt.label, bx + 55, by + 35);
+
+            // Description
+            ctx.fillStyle = 'rgba(255,255,255,0.6)';
+            ctx.font = '12px "Courier New", monospace';
+            ctx.fillText(opt.desc, bx + 55, by + 58);
+
+            // Hotkey hint
+            ctx.fillStyle = 'rgba(255,255,255,0.3)';
+            ctx.font = '10px "Courier New", monospace';
+            ctx.fillText('Press ' + opt.code + ' or click', bx + 55, by + 78);
+        });
+
+        // Handle selection
+        if (mouseClicked && hoveredOption) {
+            difficulty = DIFFICULTIES[hoveredOption.key];
+            startGame();
+        }
+        if (keys['Digit1'] || keys['Numpad1']) { difficulty = DIFFICULTIES.easy; startGame(); }
+        if (keys['Digit2'] || keys['Numpad2']) { difficulty = DIFFICULTIES.medium; startGame(); }
+        if (keys['Digit3'] || keys['Numpad3']) { difficulty = DIFFICULTIES.hard; startGame(); }
+
+        // Commentary toggle
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.font = '11px "Courier New", monospace';
+        ctx.fillText('Press C to toggle commentary (' + (commentaryEnabled ? 'ON' : 'OFF') + ')  •  M to toggle sound (' + (soundEnabled ? 'ON' : 'OFF') + ')', W / 2, 560);
+        if (keys['KeyC']) { commentaryEnabled = !commentaryEnabled; keys['KeyC'] = false; }
+        if (keys['KeyM']) { soundEnabled = !soundEnabled; keys['KeyM'] = false; }
+
+        drawCRTEffect();
+        mouseClicked = false;
+    }
+
+    function startGame() {
+        gameState = 'INTRO';
+        introTimer = 0;
+        resetSet();
+        player.y = 300;
+        ai.y = 300;
+        keys = {};
+    }
+
+    function drawIntroScreen() {
+        introTimer++;
+        ctx.fillStyle = '#0a0a2e';
+        ctx.fillRect(0, 0, W, H);
+
+        if (introTimer < 60) {
+            // Difficulty name reveal
+            const alpha = Math.min(1, introTimer / 30);
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = '#E74C3C';
+            ctx.font = 'bold 12px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('BROADCASTING LIVE ON', W / 2, 230);
+            ctx.fillStyle = '#FFD700';
+            ctx.font = 'bold 32px "Courier New", monospace';
+            ctx.fillText(difficulty.name.toUpperCase(), W / 2, 275);
+            ctx.globalAlpha = 1;
+        } else if (introTimer < 120) {
+            const alpha = Math.min(1, (introTimer - 60) / 30);
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = '#FFF';
+            ctx.font = 'italic 20px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('"Monkey Tennis..."', W / 2, 250);
+            ctx.fillStyle = 'rgba(255,255,255,0.5)';
+            ctx.font = '14px "Courier New", monospace';
+            ctx.fillText('— Alan Partridge, pitching to the BBC', W / 2, 280);
+            ctx.globalAlpha = 1;
+        } else if (introTimer < 170) {
+            const alpha = Math.min(1, (introTimer - 120) / 20);
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = '#2ECC71';
+            ctx.font = 'bold 28px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('PLAYER  vs  MR MONKEY', W / 2, 250);
+
+            drawMonkey(280, 310, true, 'idle', false);
+            ctx.fillStyle = '#FFD700';
+            ctx.font = 'bold 40px "Courier New", monospace';
+            ctx.fillText('VS', W / 2, 320);
+            drawMonkey(620, 310, false, 'idle', false);
+            ctx.globalAlpha = 1;
+        }
+
+        if (introTimer >= 190) {
+            startServe();
+        }
+
+        drawCRTEffect();
+    }
+
+    function drawSetOverScreen() {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillRect(0, 0, W, H);
+
+        const playerWon = score.player.games > score.ai.games;
+
+        if (playerWon) {
+            ctx.fillStyle = '#FFD700';
+            ctx.font = 'bold 48px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('YOU WIN THE SET!', W / 2, 180);
+
+            ctx.fillStyle = '#FFF';
+            ctx.font = 'italic 18px "Courier New", monospace';
+            ctx.fillText('"That\'s the kind of TV that makes you proud to be Norfolk."', W / 2, 240);
+
+            drawMonkey(W / 2, 340, true, 'celebrating', false);
+        } else {
+            ctx.fillStyle = '#E74C3C';
+            ctx.font = 'bold 48px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('SET LOST', W / 2, 180);
+
+            ctx.fillStyle = '#FFF';
+            ctx.font = 'italic 18px "Courier New", monospace';
+            ctx.fillText('"That was worse than a party at Jed Maxwell\'s house."', W / 2, 240);
+
+            drawMonkey(W / 2, 340, true, 'dejected', false);
+        }
+
+        // Score
+        ctx.fillStyle = '#FFF';
+        ctx.font = 'bold 32px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(score.player.games + ' — ' + score.ai.games, W / 2, 440);
+        ctx.font = '14px "Courier New", monospace';
+        ctx.fillText('PLAYER          MR MONKEY', W / 2, 465);
+
+        // Stats
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.font = '12px "Courier New", monospace';
+        ctx.fillText('Longest rally: ' + maxRallyThisSet + ' shots', W / 2, 500);
+
+        // Restart
+        const blink = Math.sin(frameCount * 0.08) > 0;
+        if (blink) {
+            ctx.fillStyle = '#FFF';
+            ctx.font = 'bold 16px "Courier New", monospace';
+            ctx.fillText('PRESS SPACE TO PLAY AGAIN', W / 2, 545);
+        }
+
+        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+        ctx.font = '9px "Courier New", monospace';
+        ctx.fillText('Commissioned by BBC Norfolk  •  Monkey Tennis will return after these messages', W / 2, 580);
+
+        drawCRTEffect();
+    }
+
+    // ============================================================
+    // GAME UPDATE
+    // ============================================================
+    function update() {
+        frameCount++;
+
+        // Global toggle keys
+        if (keys['KeyM']) { soundEnabled = !soundEnabled; keys['KeyM'] = false; }
+        if (keys['KeyC'] && gameState !== 'DIFFICULTY') { commentaryEnabled = !commentaryEnabled; keys['KeyC'] = false; }
+
+        if (commentaryTimer > 0) commentaryTimer--;
+
+        // Animation timers
+        [player, ai].forEach(m => {
+            if (m.animTimer > 0) {
+                m.animTimer--;
+                if (m.animTimer <= 0) {
+                    m.celebrating = false;
+                    m.dejected = false;
+                }
+            }
+            if (m.swingTimer > 0) {
+                m.swingTimer--;
+                if (m.swingTimer <= 0) m.swinging = false;
+            }
+            if (m.bananaTimer > 0) {
+                m.bananaTimer--;
+                if (m.bananaTimer <= 0) m.hasBanana = false;
+            }
+        });
+
+        switch (gameState) {
+            case 'TITLE': break;
+            case 'DIFFICULTY': break;
+            case 'INTRO': break;
+            case 'SERVING': updateServing(); break;
+            case 'PLAYING': updatePlaying(); break;
+            case 'POINT_SCORED':
+            case 'GAME_WON':
+                stateTimer--;
+                if (stateTimer <= 0) {
+                    player.celebrating = false;
+                    player.dejected = false;
+                    ai.celebrating = false;
+                    ai.dejected = false;
+                    startServe();
+                }
+                break;
+            case 'SET_OVER': break;
+        }
+    }
+
+    function updateServing() {
+        stateTimer--;
+        updatePlayerMovement();
+
+        // AI moves toward center during serve
+        const centerY = (COURT.top + COURT.bottom) / 2;
+        if (Math.abs(ai.y - centerY) > 3) {
+            ai.y += (centerY - ai.y) * 0.05;
+        }
+
+        // Player can serve early by pressing space (if it's their serve)
+        if (server === 'player' && keys['Space'] && stateTimer < SERVE_DELAY - 15) {
+            launchServe();
+            return;
+        }
+
+        if (stateTimer <= 0) {
+            launchServe();
+        }
+    }
+
+    function updatePlaying() {
+        updatePlayerMovement();
+        updateAI();
+        updateBall();
+        updateBanana();
+    }
+
+    function updatePlayerMovement() {
+        const speed = player.hasBanana ? 5.5 * BANANA_SPEED_MULT : 5.5;
+        if (keys['ArrowUp'] || keys['KeyW']) {
+            player.y -= speed;
+        }
+        if (keys['ArrowDown'] || keys['KeyS']) {
+            player.y += speed;
+        }
+        player.y = Math.max(COURT.top + 35, Math.min(COURT.bottom - 35, player.y));
+
+        // Swing
+        if (keys['Space'] && !player.swinging) {
+            player.swinging = true;
+            player.swingTimer = SWING_DURATION;
+        }
+    }
+
+    function updateAI() {
+        if (!ball.active) return;
+
+        // Predict where ball will be when it reaches AI's x position
+        let targetY;
+        if (ball.vx > 0 && ball.lastHitBy === 'player') {
+            // Ball coming toward AI — predict intercept
+            const framesToArrive = Math.max(1, (ai.x - ball.x) / ball.vx);
+            targetY = ball.y + ball.vy * framesToArrive * 0.5;
+            // Clamp prediction to court bounds
+            targetY = Math.max(COURT.top + 40, Math.min(COURT.bottom - 40, targetY));
+        } else {
+            // Ball going away or AI just hit — drift toward center with some randomness
+            targetY = (COURT.top + COURT.bottom) / 2 + Math.sin(frameCount * 0.01) * 50;
+        }
+
+        // Smooth tracking with reaction speed
+        ai.targetY += (targetY - ai.targetY) * difficulty.aiReaction;
+        const speed = ai.hasBanana ? difficulty.aiSpeed * BANANA_SPEED_MULT : difficulty.aiSpeed;
+        const moveDiff = ai.targetY - ai.y;
+
+        if (Math.abs(moveDiff) > 2) {
+            ai.y += Math.sign(moveDiff) * Math.min(speed, Math.abs(moveDiff));
+        }
+        ai.y = Math.max(COURT.top + 35, Math.min(COURT.bottom - 35, ai.y));
+
+        // AI swing decision — swing when ball is close
+        if (!ai.swinging && ball.vx > 0 && ball.x > NET_X + 80) {
+            const dx = ball.x - ai.x;
+            const dy = ball.y - ai.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < difficulty.aiSwingRange + 15) {
+                if (!ai.willMiss) {
+                    ai.swinging = true;
+                    ai.swingTimer = SWING_DURATION;
+                } else if (dist < 25) {
+                    // Even when planning to miss, sometimes panic-swing too late
+                    ai.swinging = true;
+                    ai.swingTimer = Math.floor(SWING_DURATION * 0.4);
+                }
+            }
+        }
+    }
+
+    function updateBall() {
+        if (!ball.active) return;
+
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+
+        // Top/bottom wall bounce
+        if (ball.y - BALL_RADIUS < COURT.top) {
+            ball.y = COURT.top + BALL_RADIUS;
+            ball.vy = Math.abs(ball.vy) * 0.95;
+            playSound('netHit');
+        }
+        if (ball.y + BALL_RADIUS > COURT.bottom) {
+            ball.y = COURT.bottom - BALL_RADIUS;
+            ball.vy = -Math.abs(ball.vy) * 0.95;
+            playSound('netHit');
+        }
+
+        // Net collision - ball clips the net if passing through slowly near the center
+        if (Math.abs(ball.vx) < 2.5 && ball.x > NET_X - 6 && ball.x < NET_X + 6 &&
+            ball.y > COURT.top + 30 && ball.y < COURT.bottom - 30) {
+            ball.vx *= -0.3;
+            ball.vy *= 0.5;
+            ball.x = ball.vx > 0 ? NET_X + 7 : NET_X - 7;
+            playSound('netHit');
+            spawnParticles(NET_X, ball.y, 5, 255, 255, 255);
+        }
+
+        // Check for player hit
+        if (player.swinging && ball.vx < 0 && ball.x < player.x + MONKEY_HIT_RANGE && ball.x > player.x - 20) {
+            const dy = ball.y - player.y;
+            if (Math.abs(dy) < MONKEY_HIT_RANGE) {
+                hitBall(player, 1, dy);
+                return;
+            }
+        }
+
+        // Check for AI hit
+        if (ai.swinging && ball.vx > 0 && ball.x > ai.x - MONKEY_HIT_RANGE && ball.x < ai.x + 20) {
+            const dy = ball.y - ai.y;
+            if (Math.abs(dy) < MONKEY_HIT_RANGE) {
+                hitBall(ai, -1, dy);
+                return;
+            }
+        }
+
+        // Ball out of bounds - point scored
+        if (ball.x < COURT.left - 20) {
+            // AI scores
+            pointScored('ai');
+        } else if (ball.x > COURT.right + 20) {
+            // Player scores
+            pointScored('player');
+        }
+    }
+
+    function hitBall(hitter, direction, offsetY) {
+        rallyCount++;
+        if (rallyCount > maxRallyThisSet) maxRallyThisSet = rallyCount;
+
+        ball.speed = Math.min(MAX_BALL_SPEED, difficulty.ballSpeed + rallyCount * RALLY_SPEED_INCREASE);
+        const angle = (offsetY / MONKEY_HIT_RANGE) * 0.8; // -0.8 to 0.8 radians based on hit position
+        ball.vx = direction * ball.speed * Math.cos(angle);
+        ball.vy = ball.speed * Math.sin(angle);
+
+        // Ensure ball moves toward opponent
+        ball.vx = direction * Math.max(Math.abs(ball.vx), ball.speed * 0.5);
+
+        ball.lastHitBy = hitter === player ? 'player' : 'ai';
+
+        // Power hit effects
+        if (hitter.hasBanana) {
+            ball.vx *= 1.3;
+            ball.vy *= 1.3;
+            spawnParticles(ball.x, ball.y, 15, 255, 215, 0);
+            playSound('powerHit');
+        } else {
+            spawnParticles(ball.x, ball.y, 8, 205, 220, 57);
+            playSound('hit');
+        }
+
+        // Crowd excitement
+        crowdExcitement = Math.min(1, crowdExcitement + 0.1);
+        if (rallyCount > 5 && rallyCount % 3 === 0 && frameCount - lastCrowdSound > 30) {
+            playSound('crowd');
+            lastCrowdSound = frameCount;
+        }
+
+        // AI decides whether to miss the next one
+        ai.willMiss = Math.random() < difficulty.aiMissChance;
+    }
+
+    function updateBanana() {
+        if (!banana.active && gameState === 'PLAYING' && Math.random() < BANANA_CHANCE) {
+            // Spawn banana
+            banana.active = true;
+            banana.x = COURT.left + 80 + Math.random() * (COURT.right - COURT.left - 160);
+            banana.y = COURT.top + 40 + Math.random() * (COURT.bottom - COURT.top - 80);
+            banana.timer = 360; // Disappears after 6 seconds
+        }
+
+        if (banana.active) {
+            banana.timer--;
+            if (banana.timer <= 0) {
+                banana.active = false;
+                return;
+            }
+
+            // Ball collects bananas — whoever hit the ball last gets the power-up
+            if (ball.active) {
+                const dx = banana.x - ball.x;
+                const dy = banana.y - ball.y;
+                if (Math.sqrt(dx * dx + dy * dy) < 25) {
+                    const collector = ball.lastHitBy === 'player' ? player : ai;
+                    collector.hasBanana = true;
+                    collector.bananaTimer = BANANA_DURATION;
+                    banana.active = false;
+                    spawnParticles(banana.x, banana.y, 12, 255, 215, 0);
+                    playSound('banana');
+                    if (collector === player) {
+                        setCommentary("Banana boost! That's what I call a power play!");
+                    } else {
+                        setCommentary("The AI has the banana! This is an outrage!");
+                    }
+                }
+            }
+        }
+    }
+
+    // ============================================================
+    // RENDER
+    // ============================================================
+    function render() {
+        ctx.clearRect(0, 0, W, H);
+
+        switch (gameState) {
+            case 'TITLE':
+                drawTitleScreen();
+                return;
+            case 'DIFFICULTY':
+                drawDifficultyScreen();
+                return;
+            case 'INTRO':
+                drawIntroScreen();
+                return;
+            case 'SET_OVER':
+                drawSetOverScreen();
+                return;
+        }
+
+        // Game scenes (SERVING, PLAYING, POINT_SCORED, GAME_WON)
+        drawSky();
+        drawCourt();
+        drawBanana();
+        drawBall();
+
+        // Draw monkeys
+        drawMonkey(player.x, player.y, true, getMonkeyState(player), player.hasBanana);
+        drawMonkey(ai.x, ai.y, false, getMonkeyState(ai), ai.hasBanana);
+
+        drawParticles();
+        drawScoreboard();
+        drawCommentary();
+        drawCredits();
+
+        // Power-up indicator
+        if (player.hasBanana) {
+            ctx.fillStyle = '#FFD700';
+            ctx.font = 'bold 12px "Courier New", monospace';
+            ctx.textAlign = 'left';
+            const barW = (player.bananaTimer / BANANA_DURATION) * 80;
+            ctx.fillRect(20, COURT.bottom + 15, barW, 8);
+            ctx.strokeStyle = '#DAA520';
+            ctx.strokeRect(20, COURT.bottom + 15, 80, 8);
+            ctx.fillText('🍌 BOOST', 20, COURT.bottom + 40);
+        }
+        if (ai.hasBanana) {
+            ctx.fillStyle = '#FFD700';
+            ctx.font = 'bold 12px "Courier New", monospace';
+            ctx.textAlign = 'right';
+            const barW = (ai.bananaTimer / BANANA_DURATION) * 80;
+            ctx.fillRect(W - 20 - barW, COURT.bottom + 15, barW, 8);
+            ctx.strokeStyle = '#DAA520';
+            ctx.strokeRect(W - 100, COURT.bottom + 15, 80, 8);
+            ctx.fillText('🍌 BOOST', W - 20, COURT.bottom + 40);
+        }
+
+        // Sound/commentary indicators
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.font = '10px "Courier New", monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('[M] Sound: ' + (soundEnabled ? 'ON' : 'OFF') + '  [C] Commentary: ' + (commentaryEnabled ? 'ON' : 'OFF'), 10, H - 20);
+
+        // Game state overlays
+        if (gameState === 'SERVING') {
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.fillRect(0, 0, W, H);
+            ctx.fillStyle = '#FFF';
+            ctx.font = 'bold 24px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            const serveText = server === 'player' ? 'YOUR SERVE' : 'OPPONENT SERVES';
+            ctx.fillText(serveText, W / 2, H / 2 - 10);
+            ctx.font = '14px "Courier New", monospace';
+            ctx.fillStyle = 'rgba(255,255,255,0.6)';
+            if (server === 'player' && stateTimer < SERVE_DELAY - 15) {
+                const blink = Math.sin(frameCount * 0.15) > 0;
+                ctx.fillStyle = blink ? '#FFEB3B' : 'rgba(255,255,255,0.6)';
+                ctx.fillText('Press SPACE to serve!', W / 2, H / 2 + 15);
+            } else {
+                ctx.fillText('Get ready...', W / 2, H / 2 + 15);
+            }
+        }
+
+        if (gameState === 'POINT_SCORED' || gameState === 'GAME_WON') {
+            ctx.fillStyle = 'rgba(0,0,0,0.2)';
+            ctx.fillRect(0, 0, W, H);
+
+            if (gameState === 'GAME_WON') {
+                const winner = lastPointWinner === 'player' ? 'PLAYER' : 'MR MONKEY';
+                ctx.fillStyle = '#FFD700';
+                ctx.font = 'bold 36px "Courier New", monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('GAME — ' + winner + '!', W / 2, H / 2 - 10);
+                ctx.fillStyle = '#FFF';
+                ctx.font = '16px "Courier New", monospace';
+                ctx.fillText(score.player.games + ' — ' + score.ai.games, W / 2, H / 2 + 20);
+            }
+        }
+
+        drawCRTEffect();
+    }
+
+    // ============================================================
+    // GAME LOOP
+    // ============================================================
+    function gameLoop() {
+        update();
+        render();
+        requestAnimationFrame(gameLoop);
+    }
+
+    // Start!
+    gameLoop();
+
+    </script>
+</body>
+</html>
